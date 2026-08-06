@@ -162,8 +162,18 @@ if not args.root_only:
     target_module = target_dir / f"sqliter-driver-ohosarm64-{VERSION}.module"
     verify_pom(target_pom, "sqliter-driver-ohosarm64")
     parsed_target = json.loads(target_module.read_text())
-    if parsed_target.get("component", {}).get("url"):
-        raise SystemExit("physical OHOS module must not redirect to another publication")
+    component = parsed_target.get("component", {})
+    component_identity = (
+        component.get("group"),
+        component.get("module"),
+        component.get("version"),
+    )
+    expected_component = ("co.touchlab", "sqliter-driver", VERSION)
+    if component_identity != expected_component:
+        raise SystemExit(
+            "physical OHOS module must identify the exact SQLiter root component: "
+            f"got={component_identity} expected={expected_component}"
+        )
 
 scope = "root" if args.root_only else "complete"
 print(
