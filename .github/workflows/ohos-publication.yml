@@ -34,6 +34,9 @@ jobs:
       - name: Check out exact source
         uses: actions/checkout@v4
 
+      - name: Trust the container checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Resolve pinned OHOS SDK and source exact
         shell: bash
         run: |
@@ -84,6 +87,9 @@ jobs:
     steps:
       - name: Check out exact source
         uses: actions/checkout@v4
+
+      - name: Trust the container checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Bind tag, version, source and OHOS SDK
         shell: bash

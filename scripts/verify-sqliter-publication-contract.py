@@ -33,6 +33,7 @@ state = (ROOT / "scripts/sqliter-publication-state.sh").read_text()
 state_test = (ROOT / "scripts/test-sqliter-publication-state.sh").read_text()
 publisher = (ROOT / "scripts/publish-sqliter.sh").read_text()
 workflow = (ROOT / ".github/workflows/ohos-publication.yml").read_text()
+build_workflow = (ROOT / ".github/workflows/build.yml").read_text()
 required_source_fragments = (
     'dependsOn(commonMain)',
     'dependsOn(commonTest)',
@@ -75,11 +76,20 @@ required_workflow_fragments = (
     "sqliter-v*",
     "if: startsWith(github.ref, 'refs/tags/sqliter-v')",
     "environment: raft-artifacts-production",
+    'git config --global --add safe.directory "$GITHUB_WORKSPACE"',
     "harmonyos-ci-image:v6.1.1.280@sha256:cbe95055b155c4eb71d234f24b47d481a1b20b7e96defe3f24ab3219aff55347",
 )
 for fragment in required_workflow_fragments:
     if fragment not in workflow:
         raise SystemExit(f"missing SQLiter Hosted guard: {fragment}")
+
+for fragment in (
+    "runs-on: ubuntu-latest",
+    "test -d \"$ohos_sdk_home/native/sysroot\"",
+    "harmonyos-ci-image:v6.1.1.280@sha256:cbe95055b155c4eb71d234f24b47d481a1b20b7e96defe3f24ab3219aff55347",
+):
+    if fragment not in build_workflow:
+        raise SystemExit(f"legacy SQLiter build is not pinned to OHOS CI: {fragment}")
 
 staging = ROOT / "sqliter-driver/build/publication-staging"
 root_dir = staging / "co/touchlab/sqliter-driver" / VERSION
