@@ -1,0 +1,127 @@
+name: SQLiter OHOS publication
+
+on:
+  pull_request:
+    paths:
+      - "gradle.properties"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle/**"
+      - "gradlew"
+      - "sqliter-driver/**"
+      - "scripts/**"
+      - ".github/workflows/ohos-publication.yml"
+  workflow_dispatch:
+  push:
+    tags:
+      - "sqliter-v*"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  SQLITER_REQUIRED_TASKS: >-
+    :sqliter-driver:publishKotlinMultiplatformPublicationToGithubPackagesRepository
+    :sqliter-driver:publishOhosArm64PublicationToGithubPackagesRepository
+
+jobs:
+  validate-ohos-graph:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/bytemain/harmony-next-pipeline-docker/harmonyos-ci-image:v6.1.1.280@sha256:cbe95055b155c4eb71d234f24b47d481a1b20b7e96defe3f24ab3219aff55347
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@v4
+
+      - name: Resolve pinned OHOS SDK and source exact
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "PUBLICATION_SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
+          ohos_sdk_home="${OHOS_SDK_HOME:-${OHOS_BASE_SDK_HOME:-/opt/harmonyos-tools/command-line-tools/sdk/default/openharmony}}"
+          test -d "$ohos_sdk_home/native/sysroot"
+          ohos_sdk_home="$(cd "$ohos_sdk_home" && pwd)"
+          echo "OHOS_SDK_HOME=$ohos_sdk_home" >> "$GITHUB_ENV"
+          echo "OHOS_BASE_SDK_HOME=$ohos_sdk_home" >> "$GITHUB_ENV"
+          echo "OHOS_NDK_HOME=$ohos_sdk_home" >> "$GITHUB_ENV"
+          echo "OHOS_LLVM_HOME=$ohos_sdk_home/native/llvm" >> "$GITHUB_ENV"
+          echo "$ohos_sdk_home/toolchains" >> "$GITHUB_PATH"
+          echo "$ohos_sdk_home/native/llvm/bin" >> "$GITHUB_PATH"
+
+      - name: Test fail-closed immutable-state planner
+        run: scripts/test-sqliter-publication-state.sh
+
+      - name: Compile and stage the complete OHOS graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon --console=plain --max-workers=2 \
+            -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" \
+            -PpublicationSourceSha="$PUBLICATION_SOURCE_SHA" \
+            :sqliter-driver:publishKotlinMultiplatformPublicationToPublicationStagingRepository \
+            :sqliter-driver:publishOhosArm64PublicationToPublicationStagingRepository
+
+      - name: Verify closed metadata and provenance
+        run: python3 scripts/verify-sqliter-publication-contract.py
+
+      - name: Preserve exact staged files
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqliter-ohos-publication-${{ github.sha }}
+          path: sqliter-driver/build/publication-staging/
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/sqliter-v')
+    needs: validate-ohos-graph
+    runs-on: ubuntu-latest
+    environment: raft-artifacts-production
+    container:
+      image: ghcr.io/bytemain/harmony-next-pipeline-docker/harmonyos-ci-image:v6.1.1.280@sha256:cbe95055b155c4eb71d234f24b47d481a1b20b7e96defe3f24ab3219aff55347
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@v4
+
+      - name: Bind tag, version, source and OHOS SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          version="$(sed -n 's/^VERSION_NAME=//p' gradle.properties | tail -n 1)"
+          test "${GITHUB_REF_NAME#sqliter-v}" = "$version"
+          echo "PUBLICATION_SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
+          echo "SQLITER_VERSION=$version" >> "$GITHUB_ENV"
+          ohos_sdk_home="${OHOS_SDK_HOME:-${OHOS_BASE_SDK_HOME:-/opt/harmonyos-tools/command-line-tools/sdk/default/openharmony}}"
+          test -d "$ohos_sdk_home/native/sysroot"
+          ohos_sdk_home="$(cd "$ohos_sdk_home" && pwd)"
+          echo "OHOS_SDK_HOME=$ohos_sdk_home" >> "$GITHUB_ENV"
+          echo "OHOS_BASE_SDK_HOME=$ohos_sdk_home" >> "$GITHUB_ENV"
+          echo "OHOS_NDK_HOME=$ohos_sdk_home" >> "$GITHUB_ENV"
+          echo "OHOS_LLVM_HOME=$ohos_sdk_home/native/llvm" >> "$GITHUB_ENV"
+          echo "$ohos_sdk_home/toolchains" >> "$GITHUB_PATH"
+          echo "$ohos_sdk_home/native/llvm/bin" >> "$GITHUB_PATH"
+
+      - name: Plan immutable dual publication
+        id: plan
+        env:
+          GITHUB_PACKAGES_USERNAME: ${{ github.actor }}
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/sqliter-publication-state.sh plan
+
+      - name: Publish the exact closed graph to both repositories
+        if: env.SQLITER_SKIP_PUBLISH != 'true'
+        env:
+          GITHUB_PACKAGES_USERNAME: ${{ github.actor }}
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RAFT_ARTIFACTS_PUBLISH_TOKEN: ${{ secrets.RAFT_ARTIFACTS_PUBLISH_TOKEN }}
+        run: scripts/publish-sqliter.sh
+
+      - name: Verify dual-repository convergence
+        env:
+          GITHUB_PACKAGES_USERNAME: ${{ github.actor }}
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/sqliter-publication-state.sh verify
