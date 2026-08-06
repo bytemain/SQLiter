@@ -11,15 +11,11 @@ if [[ "${SQLITER_PLAN_READY:-}" != "true" ]]; then
   exit 1
 fi
 if [[ "${SQLITER_SKIP_PUBLISH:-false}" == "true" ]]; then
-  echo "SQLiter publication is already complete in both repositories."
+  echo "SQLiter publication is already complete in Raft Artifacts."
   exit 0
 fi
-if [[ -z "${GITHUB_PACKAGES_USERNAME:-${GITHUB_ACTOR:-}}" || -z "${GITHUB_PACKAGES_TOKEN:-${GITHUB_TOKEN:-}}" ]]; then
-  echo "GitHub Packages credentials are required." >&2
-  exit 1
-fi
 if [[ -z "${RAFT_ARTIFACTS_PUBLISH_TOKEN:-}" ]]; then
-  echo "RAFT_ARTIFACTS_PUBLISH_TOKEN is required; dual publication fails closed." >&2
+  echo "RAFT_ARTIFACTS_PUBLISH_TOKEN is required; publication fails closed." >&2
   exit 1
 fi
 
@@ -47,26 +43,18 @@ if [[ -z "$version" || "$version" == *SNAPSHOT* ]]; then
   exit 1
 fi
 
-IFS=' ' read -r -a github_tasks <<< "${SQLITER_GITHUB_PUBLISH_TASKS:-}"
 IFS=' ' read -r -a raft_tasks <<< "${SQLITER_RAFT_PUBLISH_TASKS:-}"
 selected=()
-for task in "${github_tasks[@]}"; do
-  [[ -n "$task" ]] || continue
-  sqliter_assert_known_publication_task "$task"
-  selected+=("$task")
-done
 for task in "${raft_tasks[@]}"; do
   [[ -n "$task" ]] || continue
   sqliter_assert_known_publication_task "$task"
-  selected+=("$(sqliter_task_for_repository "$task" raft)")
+  selected+=("$task")
 done
 if (( ${#selected[@]} == 0 )); then
   echo "Immutable SQLiter plan selected no publication tasks." >&2
   exit 1
 fi
 
-export GITHUB_PACKAGES_USERNAME="${GITHUB_PACKAGES_USERNAME:-${GITHUB_ACTOR:-}}"
-export GITHUB_PACKAGES_TOKEN="${GITHUB_PACKAGES_TOKEN:-${GITHUB_TOKEN:-}}"
 export RAFT_ARTIFACTS_USERNAME="${RAFT_ARTIFACTS_USERNAME:-raft-ci}"
 export RAFT_ARTIFACTS_URL="${RAFT_ARTIFACTS_URL:-https://maven.artifacts.botiverse.dev}"
 

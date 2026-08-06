@@ -37,7 +37,6 @@ build_workflow = (ROOT / ".github/workflows/build.yml").read_text()
 required_source_fragments = (
     'dependsOn(commonMain)',
     'dependsOn(commonTest)',
-    'name = "githubPackages"',
     'name = "raftArtifacts"',
     'name = "publicationStaging"',
     'properties.put("dev.raft.sourceSha", publicationSourceSha)',
@@ -47,20 +46,22 @@ required_source_fragments = (
 for fragment in required_source_fragments:
     if fragment not in build:
         raise SystemExit(f"missing SQLiter publication contract fragment: {fragment}")
+if 'name = "githubPackages"' in build or "GithubPackagesRepository" in build:
+    raise SystemExit("SQLiter must not configure GitHub Packages as a publication target")
 
 required_state_fragments = (
-    "GitHub Packages read-scope positive control failed",
     "Raft Artifacts repository positive control failed",
     "partial immutable publication",
-    "Split repository state",
 )
 for fragment in required_state_fragments:
     if fragment not in state:
         raise SystemExit(f"missing SQLiter immutable-state guard: {fragment}")
 
-for scenario in ('"absent"', '"complete"', '"split"', '"partial"'):
+for scenario in ('"absent"', '"complete"', '"partial"'):
     if scenario not in state_test:
         raise SystemExit(f"immutable-state test lacks scenario: {scenario}")
+if '"split"' in state_test:
+    raise SystemExit("single-repository SQLiter state test must not retain a split state")
 
 required_publish_fragments = (
     'SQLITER_PLAN_READY:-}',
@@ -76,15 +77,28 @@ required_workflow_fragments = (
     "sqliter-v*",
     "if: startsWith(github.ref, 'refs/tags/sqliter-v')",
     "environment: raft-artifacts-production",
+    "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+    'test "$source_sha" = "${{ github.event.pull_request.head.sha || github.sha }}"',
+    "name: sqliter-ohos-publication-${{ steps.source.outputs.sha }}",
     'git config --global --add safe.directory "$GITHUB_WORKSPACE"',
     "harmonyos-ci-image:v6.1.1.280@sha256:cbe95055b155c4eb71d234f24b47d481a1b20b7e96defe3f24ab3219aff55347",
 )
 for fragment in required_workflow_fragments:
     if fragment not in workflow:
         raise SystemExit(f"missing SQLiter Hosted guard: {fragment}")
+for forbidden in (
+    "packages: write",
+    "GithubPackagesRepository",
+    "GITHUB_PACKAGES_TOKEN",
+    "secrets.GITHUB_TOKEN",
+):
+    if forbidden in workflow:
+        raise SystemExit(f"SQLiter Hosted must be Raft-only, found: {forbidden}")
 
 for fragment in (
     "runs-on: ubuntu-latest",
+    "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+    'test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"',
     "test -d \"$ohos_sdk_home/native/sysroot\"",
     "harmonyos-ci-image:v6.1.1.280@sha256:cbe95055b155c4eb71d234f24b47d481a1b20b7e96defe3f24ab3219aff55347",
 ):

@@ -18,12 +18,11 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 env:
   SQLITER_REQUIRED_TASKS: >-
-    :sqliter-driver:publishKotlinMultiplatformPublicationToGithubPackagesRepository
-    :sqliter-driver:publishOhosArm64PublicationToGithubPackagesRepository
+    :sqliter-driver:publishKotlinMultiplatformPublicationToRaftArtifactsRepository
+    :sqliter-driver:publishOhosArm64PublicationToRaftArtifactsRepository
 
 jobs:
   validate-ohos-graph:
@@ -33,17 +32,22 @@ jobs:
     steps:
       - name: Check out exact source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Trust the container checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Resolve pinned OHOS SDK and source exact
+        id: source
         shell: bash
         run: |
           set -euo pipefail
           source_sha="$(git rev-parse HEAD)"
           [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          test "$source_sha" = "${{ github.event.pull_request.head.sha || github.sha }}"
           echo "PUBLICATION_SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
           ohos_sdk_home="${OHOS_SDK_HOME:-${OHOS_BASE_SDK_HOME:-/opt/harmonyos-tools/command-line-tools/sdk/default/openharmony}}"
           test -d "$ohos_sdk_home/native/sysroot"
           ohos_sdk_home="$(cd "$ohos_sdk_home" && pwd)"
@@ -73,7 +77,7 @@ jobs:
       - name: Preserve exact staged files
         uses: actions/upload-artifact@v4
         with:
-          name: sqliter-ohos-publication-${{ github.sha }}
+          name: sqliter-ohos-publication-${{ steps.source.outputs.sha }}
           path: sqliter-driver/build/publication-staging/
           if-no-files-found: error
 
@@ -87,6 +91,8 @@ jobs:
     steps:
       - name: Check out exact source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Trust the container checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -97,6 +103,7 @@ jobs:
           set -euo pipefail
           source_sha="$(git rev-parse HEAD)"
           [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          test "$source_sha" = "$GITHUB_SHA"
           version="$(sed -n 's/^VERSION_NAME=//p' gradle.properties | tail -n 1)"
           test "${GITHUB_REF_NAME#sqliter-v}" = "$version"
           echo "PUBLICATION_SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
@@ -111,23 +118,15 @@ jobs:
           echo "$ohos_sdk_home/toolchains" >> "$GITHUB_PATH"
           echo "$ohos_sdk_home/native/llvm/bin" >> "$GITHUB_PATH"
 
-      - name: Plan immutable dual publication
+      - name: Plan immutable Raft Artifacts publication
         id: plan
-        env:
-          GITHUB_PACKAGES_USERNAME: ${{ github.actor }}
-          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: scripts/sqliter-publication-state.sh plan
 
-      - name: Publish the exact closed graph to both repositories
+      - name: Publish the exact closed graph to Raft Artifacts
         if: env.SQLITER_SKIP_PUBLISH != 'true'
         env:
-          GITHUB_PACKAGES_USERNAME: ${{ github.actor }}
-          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RAFT_ARTIFACTS_PUBLISH_TOKEN: ${{ secrets.RAFT_ARTIFACTS_PUBLISH_TOKEN }}
         run: scripts/publish-sqliter.sh
 
-      - name: Verify dual-repository convergence
-        env:
-          GITHUB_PACKAGES_USERNAME: ${{ github.actor }}
-          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify Raft Artifacts convergence
         run: scripts/sqliter-publication-state.sh verify

@@ -22,23 +22,12 @@ curl() {
   fi
 
   case "$url" in
-    https://api.github.com/orgs/bytemain/packages* | \
     https://artifacts.botiverse.dev/scopes/com.tencent.kuiklybase)
       printf '200'
       ;;
-    https://maven.pkg.github.com/*)
-      case "${SQLITER_MOCK_STATE:?}" in
-        absent) printf '404' ;;
-        complete | split) printf '200' ;;
-        partial)
-          [[ "$url" == *.pom ]] && printf '200' || printf '404'
-          ;;
-        *) return 2 ;;
-      esac
-      ;;
     https://maven.artifacts.botiverse.dev/*)
       case "${SQLITER_MOCK_STATE:?}" in
-        absent | split) printf '404' ;;
+        absent) printf '404' ;;
         complete) printf '200' ;;
         partial)
           [[ "$url" == *.pom ]] && printf '200' || printf '404'
@@ -56,8 +45,7 @@ export -f curl
 
 unset \
   SQLITER_PLAN_READY SQLITER_SKIP_PUBLISH RAFT_ARTIFACTS_PUBLISH_TOKEN \
-  GITHUB_REPOSITORY GITHUB_PACKAGES_USERNAME GITHUB_PACKAGES_TOKEN \
-  GITHUB_ACTOR GITHUB_TOKEN
+  SQLITER_RAFT_PUBLISH_TASKS
 if publisher_output="$("$SCRIPT_DIR/publish-sqliter.sh" 2>&1)"; then
   echo "publisher ran without an immutable-state plan" >&2
   exit 1
@@ -66,15 +54,12 @@ grep -Fq 'successful immutable-state plan is required' <<< "$publisher_output"
 
 export SQLITER_PLAN_READY="true"
 if publisher_output="$("$SCRIPT_DIR/publish-sqliter.sh" 2>&1)"; then
-  echo "publisher ran without dual-repository credentials" >&2
+  echo "publisher ran without Raft Artifacts credentials" >&2
   exit 1
 fi
-grep -Fq 'GitHub Packages credentials are required' <<< "$publisher_output"
+grep -Fq 'RAFT_ARTIFACTS_PUBLISH_TOKEN is required' <<< "$publisher_output"
 unset SQLITER_PLAN_READY
 
-export GITHUB_REPOSITORY="bytemain/SQLiter"
-export GITHUB_PACKAGES_USERNAME="contract-test"
-export GITHUB_PACKAGES_TOKEN="contract-test-token"
 export RAFT_ARTIFACTS_URL="https://maven.artifacts.botiverse.dev"
 export RAFT_ARTIFACTS_BROWSER_URL="https://artifacts.botiverse.dev"
 
@@ -87,21 +72,22 @@ export GITHUB_ENV="$test_dir/absent.env"
 "$SCRIPT_DIR/sqliter-publication-state.sh" plan >/dev/null
 grep -Fxq 'SQLITER_SKIP_PUBLISH=false' "$GITHUB_ENV"
 grep -Fxq 'SQLITER_PLAN_READY=true' "$GITHUB_ENV"
-grep -Fq 'publishKotlinMultiplatformPublicationToGithubPackagesRepository' "$GITHUB_ENV"
-grep -Fq 'publishOhosArm64PublicationToGithubPackagesRepository' "$GITHUB_ENV"
+grep -Fq 'publishKotlinMultiplatformPublicationToRaftArtifactsRepository' "$GITHUB_ENV"
+grep -Fq 'publishOhosArm64PublicationToRaftArtifactsRepository' "$GITHUB_ENV"
 
 export SQLITER_MOCK_STATE="complete"
 export GITHUB_ENV="$test_dir/complete.env"
 "$SCRIPT_DIR/sqliter-publication-state.sh" plan >/dev/null
 grep -Fxq 'SQLITER_SKIP_PUBLISH=true' "$GITHUB_ENV"
 grep -Fxq 'SQLITER_PLAN_READY=true' "$GITHUB_ENV"
+"$SCRIPT_DIR/sqliter-publication-state.sh" verify >/dev/null
 
-export SQLITER_MOCK_STATE="split"
-if split_output="$("$SCRIPT_DIR/sqliter-publication-state.sh" plan 2>&1)"; then
-  echo "split GitHub/Raft state was not rejected" >&2
+export SQLITER_MOCK_STATE="absent"
+if absent_verify_output="$("$SCRIPT_DIR/sqliter-publication-state.sh" verify 2>&1)"; then
+  echo "absent Raft publication passed verification" >&2
   exit 1
 fi
-grep -Fq 'Split repository state' <<< "$split_output"
+grep -Fq 'did not converge' <<< "$absent_verify_output"
 
 export SQLITER_MOCK_STATE="partial"
 if partial_output="$("$SCRIPT_DIR/sqliter-publication-state.sh" plan 2>&1)"; then

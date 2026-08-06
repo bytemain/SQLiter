@@ -25,25 +25,6 @@ val publicationSourceSha = providers.gradleProperty("publicationSourceSha")
 publishing {
     repositories {
         maven {
-            name = "githubPackages"
-            val repository = providers.gradleProperty("githubPackagesRepository")
-                .orElse(providers.environmentVariable("GITHUB_REPOSITORY"))
-                .orElse("bytemain/SQLiter")
-            url = uri(repository.map { "https://maven.pkg.github.com/$it" })
-            credentials {
-                username = providers.gradleProperty("githubPackagesUsername")
-                    .orElse(providers.environmentVariable("GITHUB_PACKAGES_USERNAME"))
-                    .orElse(providers.environmentVariable("GITHUB_ACTOR"))
-                    .orNull
-                    .orEmpty()
-                password = providers.gradleProperty("githubPackagesToken")
-                    .orElse(providers.environmentVariable("GITHUB_PACKAGES_TOKEN"))
-                    .orElse(providers.environmentVariable("GITHUB_TOKEN"))
-                    .orNull
-                    .orEmpty()
-            }
-        }
-        maven {
             name = "raftArtifacts"
             url = uri(
                 providers.gradleProperty("raftArtifactsUrl")
