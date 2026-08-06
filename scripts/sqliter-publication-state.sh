@@ -23,6 +23,7 @@ if (( ${#required_tasks[@]} == 0 )); then
   echo "At least one SQLiter publication task is required." >&2
   exit 1
 fi
+sqliter_assert_complete_task_set "${required_tasks[@]}"
 declare -A seen=()
 for task in "${required_tasks[@]}"; do
   sqliter_assert_known_publication_task "$task"
@@ -84,15 +85,25 @@ classify_task() {
   fi
 }
 
-raft_missing=()
+raft_complete=()
+raft_absent=()
 for task in "${required_tasks[@]}"; do
   raft_state="$(classify_task "$task")"
   echo "$task: raft=$raft_state"
-  [[ "$raft_state" == "absent" ]] && raft_missing+=("$task")
+  if [[ "$raft_state" == "complete" ]]; then
+    raft_complete+=("$task")
+  else
+    raft_absent+=("$task")
+  fi
 done
 
+if (( ${#raft_complete[@]} != 0 && ${#raft_absent[@]} != 0 )); then
+  echo "Raft Artifacts has a partial closed SQLiter graph (${#raft_complete[@]} complete/${#raft_absent[@]} absent); refusing repair/retry." >&2
+  exit 1
+fi
+
 if [[ "$mode" == "verify" ]]; then
-  if (( ${#raft_missing[@]} )); then
+  if (( ${#raft_absent[@]} )); then
     echo "SQLiter Raft Artifacts publication did not converge." >&2
     exit 1
   fi
@@ -100,9 +111,9 @@ if [[ "$mode" == "verify" ]]; then
   exit 0
 fi
 
-raft_text="${raft_missing[*]:-}"
+raft_text="${raft_absent[*]:-}"
 skip=false
-if (( ${#raft_missing[@]} == 0 )); then
+if (( ${#raft_absent[@]} == 0 )); then
   skip=true
 fi
 if [[ -n "${GITHUB_ENV:-}" ]]; then
@@ -113,4 +124,4 @@ fi
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   printf 'skipped=%s\n' "$skip" >> "$GITHUB_OUTPUT"
 fi
-echo "Immutable SQLiter Raft plan: missing=${#raft_missing[@]} skipped=$skip."
+echo "Immutable SQLiter Raft plan: missing=${#raft_absent[@]} skipped=$skip."

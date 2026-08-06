@@ -5,6 +5,21 @@ SQLITER_DEFAULT_REQUIRED_TASKS=(
   ":sqliter-driver:publishOhosArm64PublicationToRaftArtifactsRepository"
 )
 
+sqliter_assert_complete_task_set() {
+  local -a tasks=("$@")
+  if (( ${#tasks[@]} != ${#SQLITER_DEFAULT_REQUIRED_TASKS[@]} )); then
+    echo "SQLiter publication requires the complete two-task closed graph." >&2
+    return 1
+  fi
+  local index
+  for index in "${!SQLITER_DEFAULT_REQUIRED_TASKS[@]}"; do
+    if [[ "${tasks[$index]}" != "${SQLITER_DEFAULT_REQUIRED_TASKS[$index]}" ]]; then
+      echo "SQLiter publication task set/order must equal the canonical closed graph." >&2
+      return 1
+    fi
+  done
+}
+
 sqliter_assert_known_publication_task() {
   case "$1" in
     :sqliter-driver:publishKotlinMultiplatformPublicationToRaftArtifactsRepository | \

@@ -52,22 +52,29 @@ if 'name = "githubPackages"' in build or "GithubPackagesRepository" in build:
 required_state_fragments = (
     "Raft Artifacts repository positive control failed",
     "partial immutable publication",
+    "partial closed SQLiter graph",
+    "sqliter_assert_complete_task_set",
 )
 for fragment in required_state_fragments:
     if fragment not in state:
         raise SystemExit(f"missing SQLiter immutable-state guard: {fragment}")
 
-for scenario in ('"absent"', '"complete"', '"partial"'):
+for scenario in (
+    '"absent"',
+    '"complete"',
+    '"partial"',
+    "root_complete_target_absent",
+    "root_absent_target_complete",
+):
     if scenario not in state_test:
         raise SystemExit(f"immutable-state test lacks scenario: {scenario}")
-if '"split"' in state_test:
-    raise SystemExit("single-repository SQLiter state test must not retain a split state")
 
 required_publish_fragments = (
     'SQLITER_PLAN_READY:-}',
     "publication requires a clean checkout",
     "PUBLICATION_SOURCE_SHA must equal the clean checkout HEAD",
     "RAFT_ARTIFACTS_PUBLISH_TOKEN is required",
+    'sqliter_assert_complete_task_set "${raft_tasks[@]}"',
 )
 for fragment in required_publish_fragments:
     if fragment not in publisher:

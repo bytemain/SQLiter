@@ -19,6 +19,10 @@ if [[ -z "${RAFT_ARTIFACTS_PUBLISH_TOKEN:-}" ]]; then
   exit 1
 fi
 
+IFS=' ' read -r -a raft_tasks <<< "${SQLITER_RAFT_PUBLISH_TASKS:-}"
+sqliter_assert_complete_task_set "${raft_tasks[@]}"
+selected=("${raft_tasks[@]}")
+
 git_config_home="$(mktemp -d)"
 chmod 700 "$git_config_home"
 cleanup() { rm -rf "$git_config_home"; }
@@ -40,18 +44,6 @@ export PUBLICATION_SOURCE_SHA="$source_sha"
 version="${SQLITER_VERSION:-$(sed -n 's/^VERSION_NAME=//p' gradle.properties | tail -n 1)}"
 if [[ -z "$version" || "$version" == *SNAPSHOT* ]]; then
   echo "SQLITER_VERSION must be the immutable non-SNAPSHOT project version." >&2
-  exit 1
-fi
-
-IFS=' ' read -r -a raft_tasks <<< "${SQLITER_RAFT_PUBLISH_TASKS:-}"
-selected=()
-for task in "${raft_tasks[@]}"; do
-  [[ -n "$task" ]] || continue
-  sqliter_assert_known_publication_task "$task"
-  selected+=("$task")
-done
-if (( ${#selected[@]} == 0 )); then
-  echo "Immutable SQLiter plan selected no publication tasks." >&2
   exit 1
 fi
 

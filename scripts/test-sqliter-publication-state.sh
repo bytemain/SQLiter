@@ -32,6 +32,12 @@ curl() {
         partial)
           [[ "$url" == *.pom ]] && printf '200' || printf '404'
           ;;
+        root_complete_target_absent)
+          [[ "$url" == */sqliter-driver-ohosarm64/* ]] && printf '404' || printf '200'
+          ;;
+        root_absent_target_complete)
+          [[ "$url" == */sqliter-driver-ohosarm64/* ]] && printf '200' || printf '404'
+          ;;
         *) return 2 ;;
       esac
       ;;
@@ -45,7 +51,7 @@ export -f curl
 
 unset \
   SQLITER_PLAN_READY SQLITER_SKIP_PUBLISH RAFT_ARTIFACTS_PUBLISH_TOKEN \
-  SQLITER_RAFT_PUBLISH_TASKS
+  SQLITER_RAFT_PUBLISH_TASKS SQLITER_REQUIRED_TASKS
 if publisher_output="$("$SCRIPT_DIR/publish-sqliter.sh" 2>&1)"; then
   echo "publisher ran without an immutable-state plan" >&2
   exit 1
@@ -95,5 +101,32 @@ if partial_output="$("$SCRIPT_DIR/sqliter-publication-state.sh" plan 2>&1)"; the
   exit 1
 fi
 grep -Fq 'partial immutable publication' <<< "$partial_output"
+
+for split_state in root_complete_target_absent root_absent_target_complete; do
+  export SQLITER_MOCK_STATE="$split_state"
+  if split_output="$("$SCRIPT_DIR/sqliter-publication-state.sh" plan 2>&1)"; then
+    echo "partial closed graph $split_state was not rejected" >&2
+    exit 1
+  fi
+  grep -Fq 'partial closed SQLiter graph' <<< "$split_output"
+done
+
+export SQLITER_MOCK_STATE="absent"
+export SQLITER_REQUIRED_TASKS=":sqliter-driver:publishKotlinMultiplatformPublicationToRaftArtifactsRepository"
+if narrowed_output="$("$SCRIPT_DIR/sqliter-publication-state.sh" plan 2>&1)"; then
+  echo "externally narrowed SQLiter graph was not rejected" >&2
+  exit 1
+fi
+grep -Fq 'complete two-task closed graph' <<< "$narrowed_output"
+unset SQLITER_REQUIRED_TASKS
+
+export SQLITER_PLAN_READY="true"
+export RAFT_ARTIFACTS_PUBLISH_TOKEN="contract-test-token"
+export SQLITER_RAFT_PUBLISH_TASKS=":sqliter-driver:publishKotlinMultiplatformPublicationToRaftArtifactsRepository"
+if publisher_output="$("$SCRIPT_DIR/publish-sqliter.sh" 2>&1)"; then
+  echo "publisher accepted a narrowed SQLiter graph" >&2
+  exit 1
+fi
+grep -Fq 'complete two-task closed graph' <<< "$publisher_output"
 
 echo "SQLiter immutable-state planner contract PASS"
