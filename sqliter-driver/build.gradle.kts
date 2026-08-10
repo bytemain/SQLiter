@@ -1,3 +1,5 @@
+import org.gradle.api.publish.maven.MavenPublication
+import org.gradle.api.tasks.bundling.AbstractArchiveTask
 import org.jetbrains.kotlin.konan.target.HostManager
 
 plugins {
@@ -10,6 +12,56 @@ val VERSION_NAME: String by project
 
 group = GROUP
 version = VERSION_NAME
+
+val publicationSourceSha = providers.gradleProperty("publicationSourceSha")
+    .orElse(providers.environmentVariable("PUBLICATION_SOURCE_SHA"))
+    .map { value ->
+        require(value.matches(Regex("[0-9a-f]{40}"))) {
+            "publicationSourceSha must be the exact 40-character lowercase commit SHA"
+        }
+        value
+    }
+
+publishing {
+    repositories {
+        maven {
+            name = "raftArtifacts"
+            url = uri(
+                providers.gradleProperty("raftArtifactsUrl")
+                    .orElse(providers.environmentVariable("RAFT_ARTIFACTS_URL"))
+                    .orElse("https://maven.artifacts.botiverse.dev")
+            )
+            credentials {
+                username = providers.gradleProperty("raftArtifactsUsername")
+                    .orElse(providers.environmentVariable("RAFT_ARTIFACTS_USERNAME"))
+                    .orElse("raft-ci")
+                    .get()
+                password = providers.gradleProperty("raftArtifactsToken")
+                    .orElse(providers.environmentVariable("RAFT_ARTIFACTS_PUBLISH_TOKEN"))
+                    .orNull
+                    .orEmpty()
+            }
+        }
+        maven {
+            name = "publicationStaging"
+            url = layout.buildDirectory.dir("publication-staging").get().asFile.toURI()
+        }
+    }
+
+    publications.withType<MavenPublication>().configureEach {
+        pom {
+            properties.put("dev.raft.sourceSha", publicationSourceSha)
+            scm {
+                tag.set(publicationSourceSha)
+            }
+        }
+    }
+}
+
+tasks.withType<AbstractArchiveTask>().configureEach {
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
 
 fun configInterop(target: org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget) {
     val main by target.compilations.getting
@@ -53,18 +105,22 @@ kotlin {
                 optIn("kotlinx.cinterop.BetaInteropApi")
             }
         }
-        commonMain {
+        val commonMain by getting {
             dependencies {
             }
         }
-        commonTest {
+        val commonTest by getting {
             dependencies {
                 implementation(kotlin("test"))
             }
         }
 
-        val nativeCommonMain = sourceSets.maybeCreate("nativeCommonMain")
-        val nativeCommonTest = sourceSets.maybeCreate("nativeCommonTest")
+        val nativeCommonMain = sourceSets.maybeCreate("nativeCommonMain").apply {
+            dependsOn(commonMain)
+        }
+        val nativeCommonTest = sourceSets.maybeCreate("nativeCommonTest").apply {
+            dependsOn(commonTest)
+        }
 
         val linuxMain = sourceSets.maybeCreate("linuxMain").apply {
             dependsOn(nativeCommonMain)
